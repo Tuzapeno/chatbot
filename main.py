@@ -7,7 +7,6 @@ from nltk import download
 from nltk.stem import SnowballStemmer
 import unicodedata
 import re
-import numpy as np
 
 download("stopwords")
 download("punkt_tab")
@@ -22,8 +21,6 @@ snow_st = SnowballStemmer("portuguese")  # Create a stemmer for Portuguese
 pt_stop_words = set(
     stopwords.words("portuguese")
 )  # Create a set of stop words for Portuguese
-
-# docs = []  # List to store tuples of (original_text, nlp_document)
 
 
 def preprocess_text(text):
@@ -106,7 +103,6 @@ query = "Como o autor descreve os costumes dos colonizadores portugueses?"
 
 query_tokens = preprocess_text(query)
 query_doc = nlp_pt(" ".join(query_tokens))
-
 
 # Find the most similar vector
 greatest_similarity = 0
