@@ -1,37 +1,33 @@
 # GROUP: ARTHUR NEUMANN SALERNO, HENRIQUE ALVES SEMMER, VINICIUS TEIDER
 
 import spacy
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+from nltk import download
+from nltk.stem import SnowballStemmer
 import unicodedata
 import re
 import numpy as np
 
-START_LINE = 116
-END_LINE = 9058
+download("stopwords")
+download("punkt_tab")
+
+START_LINE = 116  # Beginning of the actual book
+END_LINE = 8698  # End of the book
 WORD_BATCH_SIZE = 250
 FILE_PATH = "guarani.txt"
 
-# Load spaCy model
-nlp = spacy.load("pt_core_news_md")
-nlp_tokenizer = spacy.load("pt_core_news_md", disable=["ner", "parser", "textcat"])
-# Structure to store the vectors and the associated text chunk
-vector_to_chunk = {}
-docs = []
-chunks = []
+nlp_pt = spacy.load("pt_core_news_md")  # Load the Portuguese model
+snow_st = SnowballStemmer("portuguese")  # Create a stemmer for Portuguese
+pt_stop_words = set(
+    stopwords.words("portuguese")
+)  # Create a set of stop words for Portuguese
 
-
-def similarity_calc(vec1, vec2):
-    dot_product = np.dot(vec1, vec2)
-    norm_vec1 = np.linalg.norm(vec1)
-    norm_vec2 = np.linalg.norm(vec2)
-
-    if norm_vec1 == 0 or norm_vec2 == 0:
-        return 0.0
-
-    return dot_product / (norm_vec1 * norm_vec2)
+# docs = []  # List to store tuples of (original_text, nlp_document)
 
 
 def preprocess_text(text):
-    global nlp_tokenizer
+    global snow_st
     tokens = []
 
     # 1. All words to lowercase
@@ -40,39 +36,32 @@ def preprocess_text(text):
     # 2. Unicode normalization
     text = unicodedata.normalize("NFD", text)
 
-    # 3. Standardize multiple spaces and tabs
+    # 3. Replace punctuations for spaces
+    text = re.sub(r"[^a-zA-Z0-9\s]", " ", text)
+
+    # 4. Standardize multiple spaces and tabs
     text = re.sub(r"\s+", " ", text).strip()
 
-    # 4. Replace punctuations for spaces
-    text = re.sub(r"[^\w\s]", " ", text)
+    # tokens = word_tokenize(text, language="portuguese")
+    # TODO: See if the word_tokenize function removes empty lines
+
+    # 5. Tokenize and remove empty tokens
+    # tokens = [token for token in text.split(" ") if token != ""]
+    tokens = word_tokenize(text, language="portuguese")
+
+    # 6. Apply stemming and remove stopwords
+    steamed_tokens = [
+        snow_st.stem(token) for token in tokens if token not in pt_stop_words
+    ]
 
     # 5. Tokenize & Removing stopwords & Steeming
-    docs = nlp_tokenizer(text)
-    tokens = [t.lemma_ for t in docs if not t.is_stop]
-
-    return tokens
+    return steamed_tokens
 
 
-def vectorize_text(lines):
-    global nlp
-    text = " ".join(lines)
-    processed_text = preprocess_text(text)
-    doc = nlp(processed_text)
-    data = {"vector": doc.vector, "text": processed_text, "doc": doc}
-    return data
+def process_file(file_path):
+    docs = []
+    file = open(file_path, "r", encoding="utf-8")
 
-
-def add_to_docs(data):
-    global docs
-    global vector_to_chunk
-    vector_to_chunk[hash(data["text"])] = data
-    docs.append(data["doc"])
-
-
-# ======== MAIN =========
-
-
-with open(FILE_PATH, "r", encoding="utf-8") as file:
     # Skip to the start line
     for _ in range(START_LINE):
         file.readline()
@@ -80,29 +69,43 @@ with open(FILE_PATH, "r", encoding="utf-8") as file:
     # Read and process in batches
     current_line = START_LINE
     words = []
+    full_text = []
 
     for line in file:
         if current_line >= END_LINE:
             break
 
         if len(words) >= WORD_BATCH_SIZE:
-            # chunks.append(" ".join(words))
-            docs.append(nlp(" ".join(words)))
+            data = (" ".join(full_text), nlp_pt(" ".join(words)))
+            docs.append(data)
             half = WORD_BATCH_SIZE // 2
-            words = words[half:]  # maintain 50% for superposition
+            words = words[half:]
+            # maintain 50% for superposition
+            half = len(full_text) // 2
+            full_text = full_text[half:]
 
         words.extend(preprocess_text(line))
+        full_text.append(line.strip())
         current_line += 1
 
     # Process leftover words that didn't sum up to batch size
     if len(words) > 0:
-        # chunks.append(" ".join(words))
-        docs.append(nlp(" ".join(words)))
+        docs.append((" ".join(full_text), nlp_pt(" ".join(words))))
+
+    file.close()
+
+    return docs
 
 
-query = "Como é descrita a natureza brasileira ao redor da casa de Dom Antônio?"
+# ======== MAIN =========
+
+docs = process_file(FILE_PATH)
+
+
+query = "Como o autor descreve os costumes dos colonizadores portugueses?"
+
 query_tokens = preprocess_text(query)
-query_doc = nlp(" ".join(query_tokens))
+query_doc = nlp_pt(" ".join(query_tokens))
 
 
 # Find the most similar vector
@@ -110,12 +113,12 @@ greatest_similarity = 0
 most_similar_vector = None
 most_similar_text = None
 
-for doc in docs:
+for text, doc in docs:
     similarity = query_doc.similarity(doc)
     if similarity > greatest_similarity:
         greatest_similarity = similarity
         most_similar_vector = doc.vector
-        most_similar_text = doc.text
+        most_similar_text = text
 
 print("\n\n")
 print("Query text:")
