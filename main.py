@@ -8,12 +8,20 @@ from nltk.stem import SnowballStemmer
 import unicodedata
 import re
 
+
+# ======== SETUP =========
+
+
 download("stopwords")
 download("punkt_tab")
 
-START_LINE = 116  # Beginning of the actual book
-END_LINE = 8698  # End of the book
-WORD_BATCH_SIZE = 250
+
+# ======== CONSTANTS =========
+
+
+START_LINE = 116  # Beginning of book story content
+END_LINE = 8698  # End of the book story content
+WORD_BATCH_SIZE = 250  # Chunk size for processing
 FILE_PATH = "guarani.txt"
 
 nlp_pt = spacy.load("pt_core_news_md")  # Load the Portuguese model
@@ -23,6 +31,11 @@ pt_stop_words = set(
 )  # Create a set of stop words for Portuguese
 
 
+# ======== FUNCTIONS =========
+
+
+# Applies a series of text preprocessing steps to the input text.
+# In order to prepare it for the nlp model.
 def preprocess_text(text):
     global snow_st
     tokens = []
@@ -55,6 +68,17 @@ def preprocess_text(text):
     return steamed_tokens
 
 
+# Applies the whole vectorization process to a string.
+# Returns the original string and the spacy document.
+def process_string(string):
+    tokens = preprocess_text(string)
+    doc = nlp_pt(" ".join(tokens))
+    return (string, doc)
+
+
+# Applies the whole vectorization process to a file.
+# Returns a list of tuples, each containing the
+# original chunk and the corresponding spacy document.
 def process_file(file_path):
     docs = []
     file = open(file_path, "r", encoding="utf-8")
@@ -96,13 +120,11 @@ def process_file(file_path):
 
 # ======== MAIN =========
 
+
 docs = process_file(FILE_PATH)
 
-
 query = "Como o autor descreve os costumes dos colonizadores portugueses?"
-
-query_tokens = preprocess_text(query)
-query_doc = nlp_pt(" ".join(query_tokens))
+_, query_doc = process_string(query)
 
 # Find the most similar vector
 greatest_similarity = 0
