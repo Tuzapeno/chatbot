@@ -66,7 +66,6 @@ def answer_query(query, docs):
 # Applies a series of text preprocessing steps to the input text.
 # In order to prepare it for the nlp model.
 def preprocess_text(text):
-    global snow_st
     tokens = []
 
     # 1. All words to lowercase
@@ -156,7 +155,7 @@ typewriter_effect("Por favor, sinta-se à vontade para fazer suas perguntas.")
 typewriter_effect("Para encerrar a sessão, digite 'sair'.")
 
 while True:
-    user_input = input("> ")
+    user_input = input(">>  ")
 
     if user_input == "clear":
         os.system("clear")
