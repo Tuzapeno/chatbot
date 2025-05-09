@@ -7,13 +7,21 @@ from nltk import download
 from nltk.stem import SnowballStemmer
 import unicodedata
 import re
+import time
+import os
 
 
 # ======== SETUP =========
 
+try:
+    stopwords.words("portuguese")
+except LookupError:
+    download("stopwords")
 
-download("stopwords")
-download("punkt_tab")
+try:
+    word_tokenize("Olá, tudo bem?", language="portuguese")
+except LookupError:
+    download("punkt_tab")
 
 
 # ======== CONSTANTS =========
@@ -32,6 +40,27 @@ pt_stop_words = set(
 
 
 # ======== FUNCTIONS =========
+
+
+# Adds a typewriter effect for improved experience in terminal mode
+def typewriter_effect(string, speed=0.01):
+    for char in string:
+        print(char, end="", flush=True)
+        time.sleep(speed)
+    print()
+
+
+# Returns the chunk with most similarity score to the user's query
+def answer_query(query, docs):
+    _, query_doc = process_string(query)
+
+    most_similar_text, greatest_similarity = max(
+        ((text, doc.similarity(query_doc)) for text, doc in docs),
+        key=lambda x: x[1],
+        default=(None, 0),
+    )
+
+    return most_similar_text, greatest_similarity
 
 
 # Applies a series of text preprocessing steps to the input text.
@@ -81,68 +110,69 @@ def process_string(string):
 # original chunk and the corresponding spacy document.
 def process_file(file_path):
     docs = []
-    file = open(file_path, "r", encoding="utf-8")
 
-    # Skip to the start line
-    for _ in range(START_LINE):
-        file.readline()
+    with open(file_path, "r", encoding="utf-8") as file:
+        # Skip to the start line using a more efficient approach
+        for _ in range(START_LINE):
+            file.readline()
 
-    # Read and process in batches
-    current_line = START_LINE
-    words = []
-    full_text = []
+        current_line = START_LINE
+        words = []
+        full_text = []
 
-    for line in file:
-        if current_line >= END_LINE:
-            break
+        for line in file:
+            if current_line >= END_LINE:
+                break
 
-        if len(words) >= WORD_BATCH_SIZE:
-            data = (" ".join(full_text), nlp_pt(" ".join(words)))
-            docs.append(data)
-            half = WORD_BATCH_SIZE // 2
-            words = words[half:]
-            # maintain 50% for superposition
-            half = len(full_text) // 2
-            full_text = full_text[half:]
+            if len(words) >= WORD_BATCH_SIZE:
+                # Process batch with clear variable naming
+                text_batch = " ".join(full_text)
+                embedding_batch = nlp_pt(" ".join(words))
 
-        words.extend(preprocess_text(line))
-        full_text.append(line.strip())
-        current_line += 1
+                docs.append((text_batch, embedding_batch))
 
-    # Process leftover words that didn't sum up to batch size
-    if len(words) > 0:
+                # Maintain 50% of content for superposition
+                words = words[len(words) // 2 :]
+                full_text = full_text[len(full_text) // 2 :]
+
+            words.extend(preprocess_text(line))
+            full_text.append(line.strip())
+            current_line += 1
+
+    # Process any remaining content
+    if words:
         docs.append((" ".join(full_text), nlp_pt(" ".join(words))))
-
-    file.close()
 
     return docs
 
 
 # ======== MAIN =========
 
-
 docs = process_file(FILE_PATH)
+user_input = ""
 
-query = "Como o autor descreve os costumes dos colonizadores portugueses?"
-_, query_doc = process_string(query)
+typewriter_effect("Boa tarde! Sou Embrikenemotron, especialista no Livro Guarani.")
+typewriter_effect("Por favor, sinta-se à vontade para fazer suas perguntas.")
+typewriter_effect("Para encerrar a sessão, digite 'sair'.")
 
-# Find the most similar vector
-greatest_similarity = 0
-most_similar_vector = None
-most_similar_text = None
+while True:
+    user_input = input("> ")
 
-for text, doc in docs:
-    similarity = query_doc.similarity(doc)
-    if similarity > greatest_similarity:
-        greatest_similarity = similarity
-        most_similar_vector = doc.vector
-        most_similar_text = text
+    if user_input == "clear":
+        os.system("clear")
+        continue
 
-print("\n\n")
-print("Query text:")
-print(query)
-print("\n\n")
-print("Most similar text:")
-print(most_similar_text)
-print("\n\n")
-print("Similarity score:", greatest_similarity)
+    if user_input == "sair":
+        typewriter_effect("Bom, até logo!")
+        break
+
+    answer, similarity = answer_query(user_input, docs)
+
+    if not answer or similarity < 0.3:
+        typewriter_effect(
+            "Desculpe, com base no meu conhecimento nao consegui formular uma resposta."
+        )
+        continue
+
+    typewriter_effect(answer, 0.00005)
+    typewriter_effect(f"Similaridade: {similarity:.2f}")
