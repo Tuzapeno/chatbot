@@ -5,10 +5,9 @@ from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk import download
 from nltk.stem import SnowballStemmer
-import unicodedata
+from unidecode import unidecode
 import re
 import time
-import os
 
 
 # ======== SETUP =========
@@ -19,18 +18,18 @@ except LookupError:
     download("stopwords")
 
 try:
-    word_tokenize("Olá, tudo bem?", language="portuguese")
+    word_tokenize("Teste de tokenização.", language="portuguese")
 except LookupError:
-    download("punkt_tab")
-
+    download("punkt")
 
 # ======== CONSTANTS =========
 
 
-START_LINE = 116  # Beginning of book story content
-END_LINE = 8698  # End of the book story content
-WORD_BATCH_SIZE = 250  # Chunk size for processing
-FILE_PATH = "guarani.txt"
+START_LINE = 47  # Beginning of book story content
+END_LINE = 9501  # End of book story content
+FILE_PATH = "guarani2.txt"
+CLEAR_COMMAND = "\033[H\033[J"
+SIM_CUTOFF = 0.3
 
 nlp_pt = spacy.load("pt_core_news_md")  # Load the Portuguese model
 snow_st = SnowballStemmer("portuguese")  # Create a stemmer for Portuguese
@@ -38,140 +37,238 @@ pt_stop_words = set(
     stopwords.words("portuguese")
 )  # Create a set of stop words for Portuguese
 
+# ======= CLASSES ===========
+
+
+# Story point object contains the original paragraph
+# associated with it and the spacy document
+class StoryPoint:
+    def __init__(self, text, doc):
+        self.text = text
+        self.doc = doc
+
+    def similarity(self, other_doc):
+        return self.doc.similarity(other_doc)
+
+
+# Simple class to hold two values for an answer
+class Answer:
+    def __init__(self, text, similarity):
+        self.text = text
+        self.similarity = similarity
+
+    def __getitem__(self, index):
+        return (self.text, self.similarity)[index]
+
 
 # ======== FUNCTIONS =========
 
 
 # Adds a typewriter effect for improved experience in terminal mode
-def typewriter_effect(string, speed=0.01):
+def type_effect(string, speed=0.01):
     for char in string:
         print(char, end="", flush=True)
         time.sleep(speed)
-    print()
 
 
-# Returns the chunk with most similarity score to the user's query
-def answer_query(query, docs):
-    _, query_doc = process_string(query)
-
-    most_similar_text, greatest_similarity = max(
-        ((text, doc.similarity(query_doc)) for text, doc in docs),
+# Computes cossine similarity between a query_doc and a
+# story_points list of docs, returns an ordered list
+# of Answers
+def compute_similarity(query_doc, story_points):
+    answers = sorted(
+        [Answer(sp.text, sp.similarity(query_doc)) for sp in story_points],
         key=lambda x: x[1],
-        default=(None, 0),
+        reverse=True,
     )
+    return answers
 
-    return most_similar_text, greatest_similarity
+
+# TODO: Smart answer is supposed to search only for
+# story points that contains query identified entities.
+# def smart_answer(query_doc, entity_map, entities):
+#     possible_sps = []
+#     for ent in entities:
+#         if ent in entity_map:
+#             possible_sps.extend(entity_map[ent])
+#     best_text, best_similarity = compute_similarity(query_doc, possible_sps)
+#     return best_text, best_similarity
+
+
+def generic_answer(query_doc, story_points):
+    candidates = compute_similarity(query_doc, story_points)
+    return candidates[:3]
 
 
 # Applies a series of text preprocessing steps to the input text.
 # In order to prepare it for the nlp model.
 def preprocess_text(text):
-    tokens = []
-
-    # 1. All words to lowercase
-    text = text.lower()
-
-    # 2. Unicode normalization
-    text = unicodedata.normalize("NFD", text)
-
+    text = text.lower()  # 1. All words to lowercase
+    text = unidecode(text)  # 2. Unicode normalization
     # 3. Replace punctuations for spaces
-    text = re.sub(r"[^a-zA-Z0-9\s]", " ", text)
-
+    text = re.sub(r"[^a-zA-Z0-9\s]", "", text)
     # 4. Standardize multiple spaces and tabs
     text = re.sub(r"\s+", " ", text).strip()
+    return text
 
-    # tokens = word_tokenize(text, language="portuguese")
-    # TODO: See if the word_tokenize function removes empty lines
 
-    # 5. Tokenize and remove empty tokens
-    # tokens = [token for token in text.split(" ") if token != ""]
-    tokens = word_tokenize(text, language="portuguese")
+# Stems the tokens reducing to the radical
+def stem_tokens(tokens):
+    return [snow_st.stem(token) for token in tokens]
 
-    # 6. Apply stemming and remove stopwords
-    steamed_tokens = [
-        snow_st.stem(token) for token in tokens if token not in pt_stop_words
-    ]
 
-    # 5. Tokenize & Removing stopwords & Steeming
-    return steamed_tokens
+# Filters tokens removing stop words
+def remove_stop_words(tokens):
+    return [token for token in tokens if token not in pt_stop_words]
+
+
+# Applies all processing and filtering necessary to feed
+# the text to a nlp
+def clean_pipeline(text):
+    text = preprocess_text(text)
+    tokens = word_tokenize(text)
+    tokens = remove_stop_words(tokens)
+    cleaned_tokens = stem_tokens(tokens)
+    cleaned_text = " ".join(cleaned_tokens)
+    return cleaned_text
+
+
+# Processes chunks of data (paragraphs) to
+# create story point objects from those chunks
+def process_story_points(chunks):
+    data = []
+    for chunk in chunks:
+        cleaned_text = clean_pipeline(chunk)
+        data.append(StoryPoint(chunk, nlp_pt(cleaned_text)))
+    return data
 
 
 # Applies the whole vectorization process to a string.
-# Returns the original string and the spacy document.
-def process_string(string):
-    tokens = preprocess_text(string)
-    doc = nlp_pt(" ".join(tokens))
-    return (string, doc)
+# Returns the document and the cleaned text
+def process_query(string):
+    cleaned_text = clean_pipeline(string)
+    doc = nlp_pt(cleaned_text)
+    return doc
 
 
-# Applies the whole vectorization process to a file.
-# Returns a list of tuples, each containing the
-# original chunk and the corresponding spacy document.
-def process_file(file_path):
-    docs = []
+# Processes a file into paragraph chunks
+def process_file(file_path, start_line, end_line):
+    paragraphs = []
+    current_line = start_line
+    lines = []
+    line_count = 0
 
     with open(file_path, "r", encoding="utf-8") as file:
-        # Skip to the start line using a more efficient approach
-        for _ in range(START_LINE):
+        # Skip to the start line
+        for _ in range(start_line):
             file.readline()
 
-        current_line = START_LINE
-        words = []
-        full_text = []
-
         for line in file:
-            if current_line >= END_LINE:
+            # Reach end of book content
+            if current_line > end_line:
                 break
 
-            if len(words) >= WORD_BATCH_SIZE:
-                # Process batch with clear variable naming
-                text_batch = " ".join(full_text)
-                embedding_batch = nlp_pt(" ".join(words))
-
-                docs.append((text_batch, embedding_batch))
-
-                # Maintain 50% of content for superposition
-                words = words[len(words) // 2 :]
-                full_text = full_text[len(full_text) // 2 :]
-
-            words.extend(preprocess_text(line))
-            full_text.append(line.strip())
             current_line += 1
 
-    # Process any remaining content
-    if words:
-        docs.append((" ".join(full_text), nlp_pt(" ".join(words))))
+            # Reach end of paragraph
+            if line_count < 7:
+                # Skip empty lines
+                if not line.strip():
+                    continue
+                lines.append(line)
+                line_count += 1
+                continue
 
-    return docs
+            # Do not add empty lines
+            if lines:
+                paragraphs.append("".join(lines))
+                # 50% superposition
+                lines = lines[len(lines) // 2 :]
+                line_count = 0
+                continue
+
+        # Process any remaining content
+        if lines:
+            paragraphs.append("".join(lines))
+
+    return paragraphs
+
+
+# Extract all entities from a spacy document
+def extract_entities(doc):
+    return [ent.text for ent in doc.ents]
+
+
+# Creates a table with the key being the entity's name
+# and the value being a list of all story points that
+# the entity was detected
+def create_entity_map(story_points):
+    entity_map = {}
+    for sp in story_points:
+        for ent in extract_entities(sp.doc):
+            if ent not in entity_map:
+                entity_map[ent] = []
+            entity_map[ent].append(sp)
+    return entity_map
+
+
+# Chatbot default fail response
+def say_response_fail():
+    type_effect("Desculpe, com base no meu conhecimento ")
+    type_effect("não consegui encontrar uma resposta.\n")
+
+
+# Chatbot default success response
+def say_response_success(answer, similarity):
+    type_effect(answer, 0.00005)
+    type_effect(f"[Similaridade: {similarity:.2f}]\n\n")
+
+
+# Chatbot default greetings
+def say_greetings():
+    type_effect("Olá! sou Embrikenemotron")
+    type_effect(", especialista no livro Guarani.\n")
+    type_effect("Sinta-se à vontade para fazer suas perguntas.\n")
+    type_effect("Para encerrar a sessão, digite 'sair'.\n")
 
 
 # ======== MAIN =========
 
-docs = process_file(FILE_PATH)
-user_input = ""
+if __name__ == "__main__":
+    paragraphs = process_file(FILE_PATH, START_LINE, END_LINE)
+    story_points = process_story_points(paragraphs)
 
-typewriter_effect("Boa tarde! Sou Embrikenemotron, especialista no Livro Guarani.")
-typewriter_effect("Por favor, sinta-se à vontade para fazer suas perguntas.")
-typewriter_effect("Para encerrar a sessão, digite 'sair'.")
+    user_input = ""
+    say_greetings()
 
-while True:
-    user_input = input(">>  ")
+    while True:
+        user_input = input(">> ").lower()
+        print()
 
-    if user_input == "clear":
-        os.system("clear")
-        continue
+        if user_input == "clear":
+            print(CLEAR_COMMAND, end="")
+            continue
 
-    if user_input == "sair":
-        typewriter_effect("Bom, até logo!")
-        break
+        if user_input == "sair":
+            type_effect("Bom, até logo!")
+            break
 
-    answer, similarity = answer_query(user_input, docs)
+        query = clean_pipeline(user_input)
+        query_doc = nlp_pt(query)
+        best_candidates = generic_answer(query_doc, story_points)
 
-    if not answer or similarity < 0.3:
-        typewriter_effect(
-            "Desculpe, com base no meu conhecimento nao consegui formular uma resposta."
-        )
-        continue
+        if not best_candidates:
+            say_response_fail()
+            continue
 
-    typewriter_effect(answer, 0.00005)
-    typewriter_effect(f"Similaridade: {similarity:.2f}")
+        if not best_candidates:
+            say_response_fail()
+            continue
+
+        found_good_answer = False
+        for candidate in best_candidates:
+            if candidate.text and candidate.similarity >= SIM_CUTOFF:
+                say_response_success(candidate.text, candidate.similarity)
+                found_good_answer = True
+
+        if not found_good_answer:
+            say_response_fail()
