@@ -170,7 +170,7 @@ def process_file(file_path, start_line, end_line):
             current_line += 1
 
             # Reach end of paragraph
-            if line_count < 7:
+            if line_count < 8:
                 # Skip empty lines
                 if not line.strip():
                     continue
@@ -255,10 +255,6 @@ if __name__ == "__main__":
         query = clean_pipeline(user_input)
         query_doc = nlp_pt(query)
         best_candidates = generic_answer(query_doc, story_points)
-
-        if not best_candidates:
-            say_response_fail()
-            continue
 
         if not best_candidates:
             say_response_fail()
