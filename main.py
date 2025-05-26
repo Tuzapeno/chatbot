@@ -44,7 +44,7 @@ def type_effect(string, speed=0.01):
 def generic_answer(query_sp, story_points):
     candidates = []
     for sp in story_points:
-        similarity = cossine_similarity(query_sp.vector, sp.vector)
+        similarity = cosine_similarity(query_sp.vector, sp.vector)
         if similarity >= SIMILARITY_TRESHOLD:
             sp.similarity = similarity
             candidates.append(sp)
@@ -60,7 +60,7 @@ def smart_answer(query_sp, story_points):
     target_locations = query_sp.locations
 
     for sp in story_points:
-        similarity = cossine_similarity(query_sp.vector, sp.vector)
+        similarity = cosine_similarity(query_sp.vector, sp.vector)
         if similarity >= SIMILARITY_TRESHOLD and (
             any(character in sp.characters for character in target_characters)
             or any(location in sp.locations for location in target_locations)
@@ -73,7 +73,7 @@ def smart_answer(query_sp, story_points):
 
 
 # Computes the cosine similarity between two vectors.
-def cossine_similarity(vec1, vec2):
+def cosine_similarity(vec1, vec2):
     dot_product = np.dot(vec1, vec2)
     norm_a = np.linalg.norm(vec1)
     norm_b = np.linalg.norm(vec2)
@@ -199,11 +199,11 @@ if __name__ == "__main__":
         user_input = input(">> ")
         print()
 
-        if user_input == "clear":
+        if user_input == "CLEAR":
             print(CLEAR_COMMAND, end="")
             continue
 
-        if user_input == "sair":
+        if user_input == "SAIR":
             type_effect("Bom, até logo!")
             break
 
