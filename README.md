@@ -6,3 +6,5 @@ This project serves as a showcase of a basic natural language processing (NLP) c
 
 Note:
 This project is intended as a demonstration and is not designed for external setup or deployment. It requires a Spacy model (pt_core_news_lg) and a text file (guarani.txt) to function.
+
+👍
